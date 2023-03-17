@@ -35,42 +35,50 @@ class game_objects_{//contains a set of data about all 3d objects in the game
 	
 	public:
 	struct sphere_{//object parameters: sphere
-		double radius;
-		double x;
-		double y;
-		double z;
+		float radius;
+		float x;
+		float y;
+		float z;
 		struct gmaterial::material_ material;
 	};
 	struct cube_{//object parameters: cube
-		double x,y,z;
-		double rotx,roty;
-		double size; //cube size x,y,z
+		float x,y,z;
+		float rotx,roty;
+		float size; //cube size x,y,z
 	};
+		struct picture_{
+		struct gmaterial::texture texture;
+		float x;
+		float y;
+		float z;
+		float scale;
+	};
+	
 	struct object{//object type and parameters
 		int type;
 		struct sphere_ sphere;
 		struct cube_ cube;
+		struct picture_ picture;
 	};
-	
 };
 class game_camera_{
 	private:
 	public:
 	struct camera_data{//Camera data (position, direction)
-		double x;
-		double y;
-		double z;
-		double rotx;
-		double roty;
+		float x;
+		float y;
+		float z;
+		float rotx;
+		float roty;
 	};
 };
 class ray_{
 	private:
 	public:
 	struct ray_data{
-		double x;
-		double y;
-		double z;
+		float x;
+		float y;
+		float z;
 	};
 };
 class game_objects_render_{//is responsible for the color returned by the ray, the color of the object and also for checking if the ray hits the object
@@ -83,7 +91,7 @@ class game_objects_render_{//is responsible for the color returned by the ray, t
 	//render functions
 	struct result render_sphere(struct game_objects_::sphere_ sphere,struct ray_::ray_data camd){
 		struct result ret;
-		double range = sqrt(pow(fabs(sphere.x-camd.x),2)+pow(fabs(sphere.y-camd.y),2)+pow(fabs(sphere.z-camd.z),2));
+		float range = sqrt(pow(fabs(sphere.x-camd.x),2)+pow(fabs(sphere.y-camd.y),2)+pow(fabs(sphere.z-camd.z),2));
 		ret.hit = 0;
 		ret.col = 0;
 		if(range < sphere.radius){
@@ -96,6 +104,24 @@ class game_objects_render_{//is responsible for the color returned by the ray, t
 				ret.col = rand();
 			}
 			
+		}
+		return ret;
+	}
+	struct result render_picture(struct game_objects_::picture_ picture,struct ray_::ray_data camd){
+		struct result ret;
+		gmaterial::texture texture = picture.texture;
+		uint32_t *p = texture.img;
+		ret.hit = 0;
+		if(camd.z - picture.z < picture.scale & camd.z - picture.z > -1 & camd.x - picture.x < (float)texture.imgx*picture.scale & camd.x - picture.x > 0 & camd.y - picture.y < (float)texture.imgy*picture.scale & camd.y - picture.y > 0){
+			ret.hit = 1;
+			ret.col = p[(uint32_t)((camd.x-picture.x)/picture.scale)+(((uint32_t)((camd.y-picture.y)/picture.scale))*texture.imgx)];
+			uint8_t rcbuf[4];
+			rcbuf[0] = ret.col >> 24 & 0xff;
+			rcbuf[1] = ret.col >> 16 & 0xff;
+			rcbuf[2] = ret.col >> 8 & 0xff;
+			//rcbuf[3] = ret.col >> 0 & 0xff;
+			uint32_t *rcbuf2 = (uint32_t *)rcbuf;
+			ret.col = rcbuf2[0];
 		}
 		return ret;
 	}
@@ -125,6 +151,11 @@ class game_objects_render_{//is responsible for the color returned by the ray, t
 				if(ret.hit == 1){
 				return ret;}
 			}
+			if(objs[obj_cnt].type == 2){ //picture
+				ret = render_picture(objs[obj_cnt].picture,rayd);
+				if(ret.hit == 1){
+				return ret;}
+			}
 			obj_cnt++;
 		}
 		return ret;
@@ -138,11 +169,12 @@ class game_trace_{//responsible for ray tracing
 	class game_objects_ go;
 	class ray_ ray;
 	public:
-	double fovx = 180;
-	double fovy = 180;
-	
+	float scr_quality = 0.2;
+	float ray_quality = 10;
+	float fovx = 180;
+	float fovy = 180;
+	float r_limit = 200;
 	int trace(struct game_objects_::object objs[],int objcount,struct game_camera_::camera_data camd,SDL_Surface *scr){
-		printf("tracing...\n");
 		uint32_t *p = (uint32_t * )scr->pixels;
 		float ax,ay,az;
 		float cx,cy,cz;
@@ -150,10 +182,11 @@ class game_trace_{//responsible for ray tracing
 		float fovx_mat,fovy_mat;
 		float camrrx = 3.14/180*camd.rotx;
 		float camrry = 3.14/180*camd.roty;
-		float afovx = fovx / (float)scr->w;
-		float afovy = fovy / (float)scr->h;
+		float afovx = (fovx / (float)scr->w)/scr_quality;
+		float afovy = (fovy / (float)scr->h)/scr_quality;
 		float cfovy = 0;
 		float cfovx;
+		float r = 0;
 		struct ray_::ray_data rayd;
 		struct game_objects_render_::result res;
 		while(cfovy < fovy){
@@ -167,20 +200,19 @@ class game_trace_{//responsible for ray tracing
 				fovx_mat = (cfovx/fovx*2)-1;
 				fovy_mat = (cfovy/fovy*2)-1;
 				//=============calculating vector=================
-				//ay = fovy_mat*cos(camrry); bad try
-				//ax = ((fovx_mat*cos(camrrx) - sin(camrrx)));//*sin(camrry));
-				//az = (((cos(camrrx)) + fovx_mat*sin(camrrx)));//*sin(camrry));
-				//good try
 				ay = (0 + (fovy_mat*cos(camrrx)) - (1*sin(camrrx)) ) * (0+1+0);
 				ax = (1+0+0) * ((fovx_mat*cos(camrry)) + 0 + (1*sin(camrry)));
 				az = (0 + (fovy_mat*sin(camrrx)) + (1*cos(camrrx))) * ((-1*fovx_mat*sin(camrry)) + 0 + (1*cos(camrry)));
 				//================================================
-				float r = 0;
+				ax = ax / ray_quality;
+				ay = ay / ray_quality;
+				az = az / ray_quality;
+				r = 0;
 				dx = camd.x;
 				dy = camd.y;
 				dz = camd.z;
 				//================================================
-				while(r < 50){
+				while(r < r_limit){
 					//draw.setpixel(100+r,100+dy,0xff,scr);
 					//============================================
 					rayd.x = dx;
@@ -197,7 +229,7 @@ class game_trace_{//responsible for ray tracing
 					r+=1;//sqrt(pow(ax,2)+pow(ay,2)+pow(az,2)); wrong!
 				}
 				skip:
-				if(res.hit == 1){draw.setpixel(cfovx/afovx,cfovy/afovy,res.col,scr);}
+				if(res.hit == 1){draw.rect(cfovx/afovx/scr_quality,cfovy/afovy/scr_quality,int(((cfovx/afovx)+afovx)/scr_quality),int(((cfovy/afovy)+afovy)/scr_quality),res.col,scr);}
 				//===============================================
 				cfovx+=afovx;
 			}
@@ -216,8 +248,18 @@ class game_main{
 	struct game_objects_::object *init_objs(){
 		//struct game_objects_::sphere_ sphere;
 		struct game_objects_::cube_ cube;
+		struct game_objects_::picture_ pic;
 		struct game_objects_::cube_ cube2;
 		struct game_objects_::object *objs = (struct game_objects_::object *)malloc(4096);
+		struct gmaterial::texture texture;
+		texture.imgx = 200;
+		texture.imgy = 200;
+		texture.img = (uint32_t * )menu_button_0_image;
+		pic.texture = texture;
+		pic.x = 0;
+		pic.y = 0;
+		pic.z = 0;
+		pic.scale = 0.005;
 		cube.x = 0;
 		cube.y = 0;
 		cube.z = 20;
@@ -240,8 +282,10 @@ class game_main{
 		sphere.material = smat;
 		objs[1].sphere = sphere;
 		objs[1].type = 1;*/
-		objs[0].cube = cube;
-		objs[0].type = 0;
+		//objs[0].cube = cube;
+		//objs[0].type = 0;
+		objs[0].picture = pic;
+		objs[0].type = 2;
 		return objs;
 	}
 	int start(class sdl_ sdl,class event_ event){
@@ -287,7 +331,7 @@ class game_main{
 				if(keyd.code == SDLK_q){
 					camd.rotx -= 20;
 				}
-				while(keyd.type == SDL_KEYUP){event.poll();}
+				while(keyd.type == SDL_KEYDOWN){keyd = event.getkey();event.poll();}
 				draw.fill(0,sdl.scr);
 				gt.trace(objs,2,camd,sdl.scr);
 				sdl.flip();
@@ -308,8 +352,8 @@ class menu_{//game menu
 		/*uint32_t *btn_0_img = (uint32_t *)malloc(100000);
 		FILE* btn_0_file = fopen("a.data","rb");
 		fread(btn_0_img,80,1000,btn_0_file);*/
-		inter.set_image(0,(uint32_t * )menu_button_0_image);
-		inter.draw_button(0,sdl.scr);
+		//inter.set_image(0,(uint32_t * )menu_button_0_image);
+		//inter.draw_button(0,sdl.scr);
 		sdl.flip();
 		gm.start(sdl,event);
 		while(1){
@@ -368,7 +412,7 @@ class test_prog{//for testing functions
 		
 	}
 };
-int WinMain(int argc,char* argv[]){
+int main(int argc,char* argv[]){
 	class main_ m;
 	class test_prog test;
 	//return test.test();
